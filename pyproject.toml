@@ -1,0 +1,17 @@
+[project]
+name = "reddit-search"
+version = "1.0.0"
+description = "Portable, stdlib-only Reddit search/read tool + Claude Code plugin"
+requires-python = ">=3.9"
+
+# Runtime is STDLIB-ONLY (no dependencies). pytest here is dev-only, for the
+# test suite; the shipped tool imports nothing outside the standard library.
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["plugin/scripts"]
+testpaths = ["plugin/scripts/tests"]

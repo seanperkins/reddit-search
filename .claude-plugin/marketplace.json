@@ -1,0 +1,12 @@
+{
+  "name": "reddit-search",
+  "owner": { "name": "Sean" },
+  "plugins": [
+    {
+      "name": "reddit-search",
+      "source": "./plugin",
+      "description": "Search and read Reddit via your logged-in session (read-only, stdlib-only).",
+      "version": "1.0.0"
+    }
+  ]
+}
