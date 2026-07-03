@@ -25,7 +25,10 @@ disallowed and anonymous `.json` returns 403).
 Local testing (no marketplace): `claude --plugin-dir ./plugin`
 
 Once enabled, `reddit-search` is on PATH and a skill tells agents to use it
-instead of a blocked `reddit.com` fetch.
+instead of a blocked `reddit.com` fetch. A `PreToolUse` hook also **blocks**
+`WebFetch` on `reddit.com` and redirects the agent to the CLI — deterministic
+enforcement on top of the skill's nudge. (The hook fails open: any non-reddit
+URL or parse issue is allowed, so it never breaks WebFetch generally.)
 
 ## Usage
 
