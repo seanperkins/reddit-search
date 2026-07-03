@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Executable entrypoint. On PATH while the plugin is enabled; also runnable
-directly. Adds the bundled scripts/ dir to sys.path and dispatches to the CLI."""
+directly. Resolves symlinks (realpath) so the bundled scripts/ dir is found even
+when this file is exposed via a symlink on PATH, then dispatches to the CLI."""
 import os
 import sys
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
+_HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "scripts"))
 
 from reddit_search.cli import main  # noqa: E402
