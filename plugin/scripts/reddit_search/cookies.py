@@ -24,6 +24,10 @@ DEFAULT_PATH = "~/.config/reddit-search/cookies.json"
 ENV_VAR = "REDDIT_COOKIES"
 
 
+class CookieError(RuntimeError):
+    """Raised when a cookie file exists but can't be parsed."""
+
+
 def _is_reddit_domain(domain):
     d = (domain or "").lstrip(".").lower()
     return d == "reddit.com" or d.endswith(".reddit.com")
@@ -58,7 +62,11 @@ def _parse_netscape(text):
     """Parse a Netscape cookies.txt body -> reddit {name: value}."""
     out = {}
     for line in text.splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
+        stripped = line.lstrip()
+        # Some exporters prefix HttpOnly cookie lines with "#HttpOnly_" — keep those.
+        if stripped.startswith("#HttpOnly_"):
+            line = line.replace("#HttpOnly_", "", 1)
+        elif not line.strip() or stripped.startswith("#"):
             continue
         parts = line.split("\t")
         if len(parts) != 7:
@@ -70,12 +78,21 @@ def _parse_netscape(text):
 
 
 def load_cookies(path=None):
-    """Load cookies from the resolved path, or {} if none present."""
+    """Load cookies from the resolved path, or {} if none present.
+
+    Raises CookieError (not a raw JSONDecodeError) if the file exists but is
+    unparseable, so callers can show a clear message instead of a traceback.
+    """
     resolved = resolve_path(path)
     if not os.path.exists(resolved):
         return {}
-    with open(resolved) as f:
-        return parse_cookies(f.read())
+    try:
+        with open(resolved) as f:
+            return parse_cookies(f.read())
+    except (ValueError, OSError) as e:      # JSONDecodeError is a ValueError
+        raise CookieError(
+            f"cookie file at {resolved} is not valid (expected a JSON map, a "
+            f"browser-export JSON list, or a Netscape cookies.txt): {e}")
 
 
 def save_cookies(cookies, path=None):

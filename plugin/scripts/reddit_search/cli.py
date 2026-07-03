@@ -63,10 +63,15 @@ def _build_parser():
 
 def _doctor(args):
     path = cookies_mod.resolve_path(args.cookies)
-    cookies = cookies_mod.load_cookies(args.cookies)
     providers = cookies_mod.available_providers()
     print(f"python:          {sys.version.split()[0]}")
     print(f"cookie file:     {path}")
+    try:
+        cookies = cookies_mod.load_cookies(args.cookies)
+    except cookies_mod.CookieError as e:
+        print(f"cookies loaded:  INVALID — {e}")
+        print(f"auto-extractors: {', '.join(providers) if providers else 'none installed'}")
+        return 1
     print(f"cookies loaded:  {len(cookies)} reddit cookie(s)"
           + ("" if cookies else "  <-- none; run: reddit-search refresh-cookies"))
     print(f"auto-extractors: {', '.join(providers) if providers else 'none installed'}")
@@ -102,7 +107,12 @@ def main(argv=None, client=None):
 
     now = time.time()
     if client is None:
-        client = _build_client(args)
+        try:
+            client = _build_client(args)
+        except cookies_mod.CookieError as e:
+            print(f"{e}\nRun: reddit-search refresh-cookies (or fix the file).",
+                  file=sys.stderr)
+            return 4
     try:
         if args.cmd == "query":
             posts = core.search_posts(client, args.text, sub=args.sub, sort=args.sort,

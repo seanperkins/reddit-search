@@ -51,6 +51,23 @@ def test_doctor_reports_status(capsys, tmp_path):
     assert "cookie file:" in out and "cookies loaded:" in out
 
 
+def test_query_malformed_cookie_file_is_friendly(capsys, tmp_path):
+    path = tmp_path / "c.json"
+    path.write_text("{garbage")
+    rc = cli.main(["query", "hello", "--cookies", str(path)])   # client built for real
+    assert rc == 4
+    err = capsys.readouterr().err
+    assert "not valid" in err and "Traceback" not in err
+
+
+def test_doctor_malformed_cookie_file(capsys, tmp_path):
+    path = tmp_path / "c.json"
+    path.write_text("{garbage")
+    rc = cli.main(["doctor", "--cookies", str(path)])
+    assert rc == 1
+    assert "INVALID" in capsys.readouterr().out
+
+
 def test_refresh_no_provider_gives_manual_instructions(capsys, tmp_path, monkeypatch):
     monkeypatch.setattr(cli.cookies_mod, "refresh", lambda path=None: (None, 0))
     monkeypatch.setattr(cli.cookies_mod, "available_providers", lambda: [])

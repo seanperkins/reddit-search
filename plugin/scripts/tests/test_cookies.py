@@ -72,3 +72,16 @@ def test_refresh_skips_empty_results(tmp_path):
 def test_available_providers_filters(monkeypatch):
     providers = [("a", lambda: True, None), ("b", lambda: False, None)]
     assert ck.available_providers(providers) == ["a"]
+
+
+def test_load_cookies_raises_cookie_error_on_garbage(tmp_path):
+    import pytest
+    path = tmp_path / "c.json"
+    path.write_text("{not valid json")
+    with pytest.raises(ck.CookieError):
+        ck.load_cookies(str(path))
+
+
+def test_parse_netscape_keeps_httponly_lines():
+    text = "#HttpOnly_.reddit.com\tTRUE\t/\tTRUE\t0\treddit_session\tabc\n"
+    assert ck.parse_cookies(text) == {"reddit_session": "abc"}
