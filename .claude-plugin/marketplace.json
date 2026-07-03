@@ -1,6 +1,7 @@
 {
   "name": "reddit-search",
   "owner": { "name": "Sean" },
+  "description": "Reddit search/read tooling for Claude Code — a stdlib-only, cookie-authenticated CLI + plugin for when reddit.com is blocked to agents.",
   "plugins": [
     {
       "name": "reddit-search",
