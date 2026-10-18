@@ -45,6 +45,10 @@ The tool needs your Reddit cookies (it rides your existing login):
 
 1. **Automatic** — `reddit-search refresh-cookies` tries, in order, whatever you
    have: `agent-browser`, `browser_cookie3`, `playwright`, `selenium`.
+   When none works it prints why for each one (for example, `agent-browser` needs a
+   Chrome it can attach to over remote debugging). A browser that has only visitor
+   cookies, with no `reddit_session`, counts as a failure, because Reddit still
+   answers it with a 403; the next extractor is tried.
 2. **Manual** — put a file at `~/.config/reddit-search/cookies.json` (override with
    `--cookies` or `$REDDIT_COOKIES`). Accepted formats: a JSON map
    `{"reddit_session": "..."}`, a browser-export JSON list, or a Netscape

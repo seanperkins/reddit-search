@@ -1,6 +1,6 @@
 {
   "name": "reddit-search",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Search and read Reddit from Claude via your logged-in session — for when reddit.com is blocked to agents (WebFetch blocked, anonymous .json returns 403). Read-only, stdlib-only, cross-process rate limited.",
   "author": { "name": "Sean" }
 }

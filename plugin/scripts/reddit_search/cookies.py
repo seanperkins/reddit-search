@@ -16,16 +16,23 @@ and only imported/invoked when present.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 
 DEFAULT_PATH = "~/.config/reddit-search/cookies.json"
 ENV_VAR = "REDDIT_COOKIES"
+TOOL_TIMEOUT = 60           # seconds; a stuck browser tool must fail, not hang
+REASON_LIMIT = 300          # characters kept from a failure reason
 
 
 class CookieError(RuntimeError):
     """Raised when a cookie file exists but can't be parsed."""
+
+
+class ExtractError(RuntimeError):
+    """An extractor ran but could not produce cookies. The message says why."""
 
 
 def _is_reddit_domain(domain):
@@ -118,24 +125,55 @@ def save_cookies(cookies, path=None):
 
 
 # --- extractors: optional, only used if the underlying tool is present ---
+#
+# An extractor returns {name: value}, or None/{} when it ran but found no reddit
+# cookies. When it cannot run it RAISES (ExtractError for a diagnosed failure, or
+# whatever the underlying library raised) and `refresh_report` records the reason.
+# Swallowing the exception here is what once made a failed refresh say nothing
+# about why.
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _clip(text, limit=REASON_LIMIT):
+    """One line, no terminal escapes, bounded length. Reasons are shown to the user."""
+    one = " ".join(_ANSI.sub("", str(text)).split())
+    return one if len(one) <= limit else one[:limit - 1] + "…"
+
+
+def _last_line(output):
+    """The last non-empty line of a tool's output (bytes or str), or ''."""
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", "replace")
+    lines = [l for l in _ANSI.sub("", output or "").splitlines() if l.strip()]
+    return lines[-1].strip() if lines else ""
+
+
+def _run_tool(argv, timeout=TOOL_TIMEOUT):
+    """Run a browser tool; on failure raise ExtractError carrying the tool's own message."""
+    label = " ".join(argv[:3])      # the command and its verb, never a path or URL
+    try:
+        subprocess.run(argv, check=True, capture_output=True, timeout=timeout)
+    except subprocess.CalledProcessError as e:
+        detail = _last_line(e.stderr) or _last_line(e.stdout) or f"exit status {e.returncode}"
+        raise ExtractError(f"`{label}` failed: {_clip(detail)}") from None
+    except subprocess.TimeoutExpired:
+        raise ExtractError(f"`{label}` timed out after {timeout}s") from None
+
 
 def _extract_agent_browser():
     """Export reddit cookies from a running Chrome via the agent-browser CLI."""
     if not shutil.which("agent-browser"):
-        return None
+        raise ExtractError("agent-browser is not on PATH")
     fd, state = tempfile.mkstemp(suffix=".json")
     os.close(fd)
     try:
-        subprocess.run(["agent-browser", "--auto-connect", "open",
-                        "https://www.reddit.com"], check=True, capture_output=True)
-        subprocess.run(["agent-browser", "state", "save", state],
-                       check=True, capture_output=True)
+        _run_tool(["agent-browser", "--auto-connect", "open", "https://www.reddit.com"])
+        _run_tool(["agent-browser", "state", "save", state])
         with open(state) as f:
             data = json.load(f)
         return {c["name"]: c["value"] for c in data.get("cookies", [])
                 if _is_reddit_domain(c.get("domain", ""))}
-    except Exception:
-        return None
     finally:
         try:
             os.unlink(state)
@@ -148,62 +186,50 @@ def _extract_browser_cookie3():
     try:
         import browser_cookie3
     except ImportError:
-        return None
-    try:
-        jar = browser_cookie3.load(domain_name="reddit.com")
-        cookies = {c.name: c.value for c in jar if _is_reddit_domain(c.domain)}
-        return cookies or None
-    except Exception:
-        return None
+        raise ExtractError("browser_cookie3 is not installed") from None
+    jar = browser_cookie3.load(domain_name="reddit.com")
+    return {c.name: c.value for c in jar if _is_reddit_domain(c.domain)}
 
 
 def _extract_playwright():
     """Best-effort: read reddit cookies from the user's persistent Chrome profile
-    via Playwright. Returns None unless Playwright is installed and it works."""
+    via Playwright."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        return None
+        raise ExtractError("playwright is not installed") from None
     profile = _default_chrome_profile()
     if not profile:
-        return None
-    try:
-        with sync_playwright() as p:
-            ctx = p.chromium.launch_persistent_context(profile, headless=True)
-            try:
-                cookies = {c["name"]: c["value"] for c in ctx.cookies()
-                           if _is_reddit_domain(c.get("domain", ""))}
-            finally:
-                ctx.close()
-        return cookies or None
-    except Exception:
-        return None
+        raise ExtractError("no Chrome profile directory found")
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(profile, headless=True)
+        try:
+            return {c["name"]: c["value"] for c in ctx.cookies()
+                    if _is_reddit_domain(c.get("domain", ""))}
+        finally:
+            ctx.close()
 
 
 def _extract_selenium():
     """Best-effort: read reddit cookies via Selenium driving the user's Chrome
-    profile. Returns None unless Selenium is installed and it works."""
+    profile."""
     try:
         from selenium import webdriver
     except ImportError:
-        return None
+        raise ExtractError("selenium is not installed") from None
     profile = _default_chrome_profile()
     if not profile:
-        return None
+        raise ExtractError("no Chrome profile directory found")
+    opts = webdriver.ChromeOptions()
+    opts.add_argument("--headless=new")
+    opts.add_argument(f"--user-data-dir={profile}")
+    driver = webdriver.Chrome(options=opts)
     try:
-        opts = webdriver.ChromeOptions()
-        opts.add_argument("--headless=new")
-        opts.add_argument(f"--user-data-dir={profile}")
-        driver = webdriver.Chrome(options=opts)
-        try:
-            driver.get("https://www.reddit.com")
-            cookies = {c["name"]: c["value"] for c in driver.get_cookies()
-                       if _is_reddit_domain(c.get("domain", ""))}
-        finally:
-            driver.quit()
-        return cookies or None
-    except Exception:
-        return None
+        driver.get("https://www.reddit.com")
+        return {c["name"]: c["value"] for c in driver.get_cookies()
+                if _is_reddit_domain(c.get("domain", ""))}
+    finally:
+        driver.quit()
 
 
 def _default_chrome_profile():
@@ -237,16 +263,60 @@ def available_providers(providers=None):
     return [name for name, avail, _ in (providers or PROVIDERS) if avail()]
 
 
-def refresh(path=None, providers=None):
+NO_COOKIES = "ran, but found no reddit cookies (is that browser logged in to reddit.com?)"
+
+# A browser that has merely visited reddit.com holds visitor cookies (loid, csrf_token,
+# token_v2, ...) and still gets 403. The signed-in session is the one called reddit_session,
+# so an extractor that returns cookies without it has not found a login.
+LOGIN_COOKIE = "reddit_session"
+NO_LOGIN = ("found reddit cookies, but no login session among them "
+            f"(no {LOGIN_COOKIE}; is that browser signed in to reddit.com?)")
+
+
+def refresh_report(path=None, providers=None):
     """Try each available extractor in order; save the first non-empty result.
 
-    Returns (provider_name, count) on success, or (None, 0) if none worked.
+    Returns (provider_name, count, failures). `failures` is a list of
+    (provider_name, reason) for every extractor that was tried and did not yield
+    cookies, so a caller can say why instead of just that it failed. On total
+    failure provider_name is None and count is 0.
     """
+    failures = []
     for name, avail, extract in (providers or PROVIDERS):
         if not avail():
             continue
-        cookies = extract()
+        try:
+            cookies = extract()
+        except ExtractError as e:
+            failures.append((name, _clip(e)))
+            continue
+        except Exception as e:      # an extractor library failing must not abort the others
+            failures.append((name, _clip(f"{type(e).__name__}: {e}")))
+            continue
+        if cookies and LOGIN_COOKIE not in cookies:
+            failures.append((name, NO_LOGIN))       # visitor cookies only: try the next one
+            continue
         if cookies:
             save_cookies(cookies, path)
-            return name, len(cookies)
-    return None, 0
+            return name, len(cookies), failures
+        failures.append((name, NO_COOKIES))
+    return None, 0, failures
+
+
+def refresh(path=None, providers=None):
+    """Like `refresh_report`, without the failure reasons: (provider_name, count)."""
+    name, n, _failures = refresh_report(path, providers)
+    return name, n
+
+
+def hint_for(provider, reason):
+    """A next step for a failure we recognise, else None."""
+    if provider == "agent-browser" and "No running Chrome" in reason:
+        return ("this route needs your Chrome to have remote debugging on, which recent "
+                "Chrome ignores on its default profile. Export your cookies by hand "
+                "instead (see below), or start Chrome with remote debugging on its own "
+                "--user-data-dir.")
+    if reason == NO_LOGIN:
+        return ("sign in to reddit.com in that browser, then re-run "
+                "`reddit-search refresh-cookies`.")
+    return None

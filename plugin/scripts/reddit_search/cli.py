@@ -82,15 +82,23 @@ def _doctor(args):
 
 
 def _refresh(args):
-    name, n = cookies_mod.refresh(path=args.cookies)
+    name, n, failures = cookies_mod.refresh_report(path=args.cookies)
     if name:
         print(f"Saved {n} reddit cookie(s) via {name} -> {cookies_mod.resolve_path(args.cookies)}")
+        for pname, reason in failures:      # earlier extractors that were tried first
+            print(f"  (skipped {pname}: {reason})", file=sys.stderr)
         return 0
-    providers = cookies_mod.available_providers()
-    msg = ("Could not auto-extract cookies "
-           + (f"(tried: {', '.join(providers)})." if providers
-              else "(no agent-browser / browser_cookie3 / playwright / selenium found)."))
-    print(msg, file=sys.stderr)
+    if failures:
+        print("Could not auto-extract cookies:", file=sys.stderr)
+        for pname, reason in failures:
+            print(f"  {pname}: {reason}", file=sys.stderr)
+            hint = cookies_mod.hint_for(pname, reason)
+            if hint:
+                print(f"    -> {hint}", file=sys.stderr)
+    else:
+        print("Could not auto-extract cookies "
+              "(no agent-browser / browser_cookie3 / playwright / selenium found).",
+              file=sys.stderr)
     print("Provide cookies manually at "
           f"{cookies_mod.resolve_path(args.cookies)} — a JSON map "
           '{"reddit_session": "..."}, a browser-export JSON list, or a Netscape '

@@ -69,8 +69,36 @@ def test_doctor_malformed_cookie_file(capsys, tmp_path):
 
 
 def test_refresh_no_provider_gives_manual_instructions(capsys, tmp_path, monkeypatch):
-    monkeypatch.setattr(cli.cookies_mod, "refresh", lambda path=None: (None, 0))
-    monkeypatch.setattr(cli.cookies_mod, "available_providers", lambda: [])
+    monkeypatch.setattr(cli.cookies_mod, "refresh_report", lambda path=None: (None, 0, []))
     rc = cli.main(["refresh-cookies", "--cookies", str(tmp_path / "c.json")])
     assert rc == 1
-    assert "manually" in capsys.readouterr().err.lower()
+    err = capsys.readouterr().err.lower()
+    assert "manually" in err and "no agent-browser" in err
+
+
+def test_refresh_failure_says_why_per_provider(capsys, tmp_path, monkeypatch):
+    reason = ("`agent-browser --auto-connect open` failed: ✗ Auto-launch failed: "
+              "No running Chrome instance found.")
+    monkeypatch.setattr(cli.cookies_mod, "refresh_report",
+                        lambda path=None: (None, 0, [("agent-browser", reason),
+                                                     ("selenium", "ImportError: boom")]))
+    rc = cli.main(["refresh-cookies", "--cookies", str(tmp_path / "c.json")])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "agent-browser: `agent-browser --auto-connect open` failed" in err
+    assert "No running Chrome instance found" in err
+    assert "selenium: ImportError: boom" in err
+    assert "remote debugging" in err          # the hint for the recognised failure
+    assert "manually" in err.lower()
+
+
+def test_refresh_success_mentions_skipped_extractors(capsys, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli.cookies_mod, "refresh_report",
+                        lambda path=None: ("browser_cookie3", 3,
+                                           [("agent-browser", "tool missing")]))
+    rc = cli.main(["refresh-cookies", "--cookies", str(tmp_path / "c.json")])
+    cap = capsys.readouterr()
+    assert rc == 0
+    assert "Saved 3 reddit cookie(s) via browser_cookie3" in cap.out
+    assert "skipped agent-browser: tool missing" in cap.err
+
